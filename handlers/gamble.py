@@ -1,66 +1,60 @@
 import random
 from pyrogram import Client, filters
+from pyrogram.enums import ParseMode
 from database import users
 
-@Client.on_message(filters.command("gamble"))
-async def gamble_gems(client, message):
-    user_id = message.from_user.id
-    
-    # 1. Parse the bet amount
+@Client.on_message(filters.command(["gamble", "bet"]) & filters.group, group=0)
+async def gamble_cmd(client, message):
+    if not message.from_user:
+        return
+
+    # Check for arguments safely
     if len(message.command) < 2:
-        return await message.reply_text("💎 **Usage:** `/gamble <amount>`\nExample: `/gamble 10` or `/gamble all`")
+        # Use ParseMode.MARKDOWN to ensure **Usage** works
+        return await message.reply_text(
+            "🎲 **Usage:** `/gamble <amount>`",
+            parse_mode=ParseMode.MARKDOWN
+        )
 
-    user_data = await users.find_one({"_id": user_id}) or {}
-    # Switching from 'balance' to 'gems'
-    gems_balance = user_data.get("gems", 0)
+    user_id = message.from_user.id
+    try:
+        # Handle 'all' or specific number
+        if message.command[1].lower() == "all":
+            user_data = await users.find_one({"$or": [{"user_id": user_id}, {"_id": user_id}]})
+            bet_amount = float(user_data.get('stardust', 0)) if user_data else 0
+        else:
+            bet_amount = float(message.command[1])
+    except (ValueError, IndexError):
+        return await message.reply_text("❌ Please enter a valid number or `all`.")
 
-    if gems_balance <= 0:
-        return await message.reply_text("❌ You don't have any **Gems** to gamble! Use `/daily` or `/slot` to earn some.")
+    if bet_amount < 10:
+        return await message.reply_text("⚠️ Minimum bet is `10` Stardust.")
 
-    bet_input = message.command[1].lower()
-    
-    if bet_input == "all":
-        bet = gems_balance
-    elif bet_input.isdigit():
-        bet = int(bet_input)
+    # 1. Fetch user data
+    user_data = await users.find_one({"$or": [{"user_id": user_id}, {"_id": user_id}]})
+    current_stardust = float(user_data.get('stardust', 0)) if user_data else 0
+
+    if current_stardust < bet_amount:
+        return await message.reply_text("❌ You don't have enough Stardust!")
+
+    # 2. Gambling Logic
+    win = random.choice([True, False])
+    db_filter = {"$or": [{"user_id": user_id}, {"_id": user_id}]}
+
+    if win:
+        profit = bet_amount
+        await users.update_one(db_filter, {"$inc": {"stardust": profit}})
+        result_msg = f"🎊 **Yᴏᴜ Wᴏɴ!**\n💰 Pʀᴏғɪᴛ: `+{profit:,.2f}` Sᴛᴀʀᴅᴜsᴛ"
     else:
-        return await message.reply_text("❌ Please enter a valid number or 'all'.")
+        await users.update_one(db_filter, {"$inc": {"stardust": -bet_amount}})
+        result_msg = f"💀 **Yᴏᴜ Lᴏsᴛ!**\n💸 Lᴏss: `-{bet_amount:,.2f}` Sᴛᴀʀᴅᴜsᴛ"
 
-    # 2. Validation
-    if bet < 1:
-        return await message.reply_text("⚠️ Minimum bet is **1 Gem**.")
-    if bet > gems_balance:
-        return await message.reply_text(f"❌ You don't have enough Gems! Your balance: `💎 {gems_balance:,}`")
-
-    # 3. The Gamble Logic
-    # 45% Win, 45% Lose, 10% Jackpot (3x)
-    chance = random.randint(1, 100)
-    
-    if chance <= 10:
-        # JACKPOT WIN (3x)
-        winnings = bet * 2 # You keep your bet + gain 2x more
-        await users.update_one({"_id": user_id}, {"$inc": {"gems": winnings}})
-        new_balance = gems_balance + winnings
-        result = f"🔥 **JACKPOT!** You tripled your bet!\n💰 **Winnings:** `💎 {winnings + bet:,}`"
-    
-    elif chance <= 50:
-        # NORMAL WIN (Double)
-        await users.update_one({"_id": user_id}, {"$inc": {"gems": bet}})
-        new_balance = gems_balance + bet
-        result = f"🎉 **YOU WON!** Your gems doubled.\n💰 **Winnings:** `💎 {bet * 2:,}`"
-    
-    else:
-        # LOSS
-        await users.update_one({"_id": user_id}, {"$inc": {"gems": -bet}})
-        new_balance = gems_balance - bet
-        result = f"💀 **YOU LOST!** Better luck next time.\n📉 **Remaining:** `💎 {new_balance:,}`"
-
-    # 4. Final Message
-    await message.reply_text(
-        f"🎲 **Gᴇᴍ Gᴀᴍʙʟᴇ** 🎲\n"
-        f"━━━━━━━━━━━━━━\n"
-        f"👤 **User:** {message.from_user.mention}\n"
-        f"💵 **Bet Amount:** `💎 {bet:,}`\n\n"
-        f"{result}\n"
-        f"━━━━━━━━━━━━━━"
+    # 3. Final Response with mention to avoid character issues
+    text = (
+        f"⛩️ **Gᴀᴍʙʟᴇ Rᴇsᴜʟᴛs: {message.from_user.first_name}**\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"{result_msg}\n"
+        f"━━━━━━━━━━━━━━━━━━━━"
     )
+    
+    await message.reply_text(text, parse_mode=ParseMode.MARKDOWN)

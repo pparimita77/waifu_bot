@@ -1,34 +1,57 @@
+import html
 from pyrogram import Client, filters
+from pyrogram.enums import ParseMode
 from database import characters, claims
-from sudo import is_dev  # Restricting to Owner and Devs
+from config import OWNER_ID, DEVS 
 
-@Client.on_message(filters.command("delete") & is_dev)
+# Flatten AUTHORIZED list for cleaner checks
+AUTHORIZED = [OWNER_ID] if not isinstance(OWNER_ID, list) else OWNER_ID
+if DEVS:
+    AUTHORIZED += DEVS if isinstance(DEVS, list) else [DEVS]
+
+@Client.on_message(filters.command("delete"))
 async def delete_character(client, message):
+    user_id = message.from_user.id
+    
+    # --- AUTHORIZATION FIX ---
+    if user_id not in AUTHORIZED:
+        return await message.reply_text("🚫 <b>Bhk.</b>", parse_mode=ParseMode.HTML)
+
+    # --- USAGE FIX (Using HTML entities for < and >) ---
     if len(message.command) < 2:
-        return await message.reply_text("🗑️ **Usᴀɢᴇ:** `/delete <char_id>`")
+        return await message.reply_text(
+            "🗑️ <b>Usᴀɢᴇ:</b> <code>/delete &lt;char_id&gt;</code>",
+            parse_mode=ParseMode.HTML
+        )
 
     char_id = message.command[1]
 
-    # 1. Find the character first to show what was deleted
+    # 1. Find the character first to confirm details
     char_to_delete = await characters.find_one({"id": char_id})
     
     if not char_to_delete:
-        return await message.reply_text(f"❌ **Cʜᴀʀᴀᴄᴛᴇʀ Iᴅ `{char_id}` ɴᴏᴛ ғᴏᴜɴᴅ ɪɴ ᴅᴀᴛᴀʙᴀsᴇ.**")
+        return await message.reply_text(
+            f"❌ Character ID <code>{html.escape(char_id)}</code> not found.",
+            parse_mode=ParseMode.HTML
+        )
 
-    char_name = char_to_delete.get("name", "Unknown")
-    char_anime = char_to_delete.get("anime", "Unknown")
+    # Escape names to prevent parsing errors
+    char_name = html.escape(char_to_delete.get("name", "Unknown"))
+    char_anime = html.escape(char_to_delete.get("anime") or char_to_delete.get("animee", "Unknown"))
 
-    # 2. Delete from characters collection
+    # 2. Delete from collections
     await characters.delete_one({"id": char_id})
-
-    # 3. Optional: Delete all instances of this character from user harems
-    # Remove the next line if you want users to keep their deleted cards
     await claims.delete_many({"char_id": char_id})
 
-    await message.reply_text(
-        f"🗑️ **Cʜᴀʀᴀᴄᴛᴇʀ Dᴇʟᴇᴛᴇᴅ Sᴜᴄᴄᴇssғᴜʟʟʏ!**\n\n"
-        f"🌸 **Nᴀᴍᴇ:** {char_name}\n"
-        f"🆔 **Iᴅ:** `{char_id}`\n"
-        f"🍜 **Sᴏᴜʀᴄᴇ:** {char_anime}\n\n"
-        f"⚠️ *Aʟʟ ᴇxɪsᴛɪɴɢ ᴄʟᴀɪᴍs ᴏғ ᴛʜɪs ᴄʜᴀʀᴀᴄᴛᴇʀ ʜᴀᴠᴇ ᴀʟsᴏ ʙᴇᴇɴ ᴘᴜʀɢᴇᴅ.*"
+    # 3. Final Response
+    caption = (
+        f"🗑️ <b>Cʜᴀʀᴀᴄᴛᴇʀ Dᴇʟᴇᴛᴇᴅ Sᴜᴄᴄᴇssғᴜʟʟʏ!</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🌸 <b>Nᴀᴍᴇ:</b> {char_name}\n"
+        f"🆔 <b>Iᴅ:</b> <code>{char_id}</code>\n"
+        f"🍜 <b>Sᴏᴜʀᴄᴇ:</b> {char_anime}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"⚠️ <i>Aʟʟ ᴇxɪsᴛɪɴɢ ᴄʟᴀɪᴍs ʜᴀᴠᴇ ʙᴇᴇɴ ᴘᴜʀɢᴇᴅ.</i>"
     )
+
+    await message.reply_text(caption, parse_mode=ParseMode.HTML)

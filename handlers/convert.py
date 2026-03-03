@@ -1,57 +1,71 @@
 from pyrogram import Client, filters
+from pyrogram.enums import ParseMode
 from database import users
 
-@Client.on_message(filters.command("convert"))
-async def convert_gems_to_stardust(client, message):
+# Conversion Rate: 100 Stardust = 1 Emerald
+RATE = 100
+
+@Client.on_message(filters.command("convert") & filters.group)
+async def convert_currency(client, message):
     user_id = message.from_user.id
     
-    # Usage: /convert <amount_of_gems_to_spend>
     if len(message.command) < 2:
         return await message.reply_text(
-            "🔄 **Gᴇᴍs ᴛᴏ Sᴛᴀʀᴅᴜsᴛ Cᴏɴᴠᴇʀᴛᴇʀ**\n\n"
-            "**Rate:** 100 💎 Gᴇᴍs = 1 🌟 Sᴛᴀʀᴅᴜsᴛ\n"
-            "**Usage:** `/convert <gems_amount>`\n"
-            "**Example:** `/convert 150` (Gives 1.5 Stardust)"
+            "🔄 <b>Cᴜʀʀᴇɴᴄʏ Cᴏɴᴠᴇʀᴛᴇʀ</b>\n\n"
+            "<b>Rate:</b>\n"
+            "• 🌟 100 Stardust ➔ 💠 1 Emerald Point\n\n"
+            "<b>Usage:</b>\n"
+            "• <code>/convert 500</code>\n\n"
+            "<i>Note: Conversion is permanent.</i>",
+            parse_mode=ParseMode.HTML
         )
 
     try:
-        gems_to_spend = int(message.command[1])
+        stardust_to_spend = float(message.command[1])
     except ValueError:
-        return await message.reply_text("❌ Please enter a valid number of Gems.")
+        return await message.reply_text("❌ Please enter a valid numerical amount.")
 
-    if gems_to_spend <= 0:
+    if stardust_to_spend <= 0:
         return await message.reply_text("❌ Amount must be greater than 0.")
 
-    # Fetch user data
-    user_data = await users.find_one({"_id": user_id}) or {}
-    user_gems = user_data.get("gems", 0)
+    # Fetch user data - checking both _id and user_id formats
+    user_data = await users.find_one({"$or": [{"user_id": user_id}, {"_id": user_id}]}) or {}
 
-    # Check if user has enough gems
-    if user_gems < gems_to_spend:
+    try:
+        user_dust = float(user_data.get("stardust", 0))
+    except (ValueError, TypeError):
+        user_dust = 0.0
+
+    if user_dust < stardust_to_spend:
         return await message.reply_text(
-            f"❌ **Insufficient Gems!**\n\n"
-            f"You tried to spend: 💎 `{gems_to_spend:,}`\n"
-            f"You only have: 💎 `{user_gems:,}`"
+            f"❌ <b>Insufficient Stardust!</b>\n"
+            f"You have: 🌟 <code>{user_dust:.2f}</code>\n"
+            f"You need: 🌟 <code>{stardust_to_spend:.2f}</code>",
+            parse_mode=ParseMode.HTML
         )
 
-    # Calculation: Gems / 100 = Stardust (Decimal allowed)
-    stardust_received = float(gems_to_spend / 100)
-
+    # Calculation
+    emerald_received = round(stardust_to_spend / RATE, 2)
+    
     # Update Database
-    await users.update_one(
-        {"_id": user_id},
-        {
-            "$inc": {
-                "gems": -gems_to_spend,        # Subtract integer gems
-                "stardust": stardust_received  # Add decimal stardust
-            }
+    update = {
+        "$inc": {
+            "stardust": -stardust_to_spend,
+            "emeralds": emerald_received 
         }
+    }
+
+    await users.update_one(
+        {"$or": [{"user_id": user_id}, {"_id": user_id}]},
+        update,
+        upsert=True
     )
 
     await message.reply_text(
-        f"✅ **Cᴏɴᴠᴇʀsɪᴏɴ Cᴏᴍᴘʟᴇᴛᴇ!**\n"
+        f"✅ <b>Cᴏɴᴠᴇʀsɪᴏɴ Cᴏᴍᴘʟᴇᴛᴇ!</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"📤 **Spent:** 💎 `{gems_to_spend:,}` Gems\n"
-        f"📥 **Received:** 🌟 `{stardust_received:.2f}` Stardust\n"
-        f"━━━━━━━━━━━━━━━━━━━━"
+        f"📤 <b>Spent:</b> 🌟 <code>{stardust_to_spend:.2f}</code> Stardust\n"
+        f"📥 <b>Received:</b> 💠 <code>{emerald_received:.2f}</code> Emeralds\n"
+        f"━━━━━━━━━━━━━━━━━━━━",
+        parse_mode=ParseMode.HTML
     )

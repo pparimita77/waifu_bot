@@ -1,18 +1,14 @@
 # --- BOT CREDENTIALS ---
 # Get these from https://my.telegram.org
-API_ID = 22075212
-API_HASH = "9ffb2ca43e87151c8a9e6ab66b5a7728"
-
-# Get this from https://t.me/BotFather
-BOT_TOKEN = "7529138737:AAG69wKj2hajyv2K4-jFpqXdFNT1PfVo1yU"
-
-# --- DATABASE ---
-# Use a local link or MongoDB Atlas link
-MONGO_URL = "mongodb+srv://Stanurbias:QX5hT7Uk6QjafuyU@cluster0.ehge9.mongodb.net/?appName=Cluster0"
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+API_ID = os.getenv("API_ID")
+API_HASH = os.getenv("API_HASH")
+MONGO_URI = os.getenv("MONGO_URI")
+DB_NAME = "pirate_king_db"
 
 # --- STAFF IDs ---
 # Your Telegram User ID
-OWNER_ID = 8325139144 
+OWNER_ID = [8325139144, 7987799736]
 
 # List of Developer IDs (Who can use /rset, /add_sudo, etc.)
 DEVS = [8325139144, 7987799736]

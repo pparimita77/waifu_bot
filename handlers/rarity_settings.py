@@ -1,47 +1,55 @@
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-from database import groups
-from sudo import OWNER_ID
+from database import settings 
+from config import OWNER_ID
 
-# Define your full rarity list with emojis
+# Updated with all 17 Rarities
 RARITIES_MAP = {
-    "Common": "⚪",
-    "Rare": "🏵️",
-    "Special": "🫧",
+    "Common": "⚪️",
     "Legendary": "💮",
+    "Rare": "🍁",
+    "Special": "🫧",
     "Limited": "🔮",
     "Celestial": "🎐",
     "Manga": "🔖",
     "Expensive": "💸",
-    "Giveaway": "🧧",
-    "Seasonal": "🍂",
+    "Demonic": "☠",
+    "Royal": "👑",
+    "Summer": "🏝️",
+    "Winter": "❄️",
     "Valentine": "💝",
+    "Seasonal": "🍂",
+    "Halloween": "🎃",
+    "Christmas": "🎄",
     "AMV": "🎥"
 }
 
-async def get_allowed_rarities(chat_id):
-    group_data = await groups.find_one({"_id": chat_id})
-    if not group_data or "rarities" not in group_data:
-        # Default: All rarities allowed if nothing is set
+async def get_global_rarities():
+    """Fetches the single global list of allowed rarities"""
+    data = await settings.find_one({"_id": "global_spawn_settings"})
+    if not data or "rarities" not in data:
+        # Default: All enabled if first time
         return list(RARITIES_MAP.keys())
-    return group_data["rarities"]
+    return data["rarities"]
 
-@Client.on_message(filters.command("rarity") & filters.group)
+@Client.on_message(filters.command("rarity"), group=-1)
 async def rarity_settings_cmd(client, message):
     if message.from_user.id != OWNER_ID:
-        return # Strictly Bot Owner only
+        return await message.reply_text("❌ **Access Denied: Owner Only.**")
 
-    allowed = await get_allowed_rarities(message.chat.id)
+    allowed = await get_global_rarities()
     
     text = (
-        f"✨ **Rᴀʀɪᴛʏ Sᴘᴀᴡɴ Cᴏɴᴛʀᴏʟ**\n"
-        f"Cʜᴀᴛ: `{message.chat.title}`\n\n"
-        f"**Tap to toggle spawn availability:**"
+        f"🌍 **Gʟᴏʙᴀʟ Sᴘᴀᴡɴ Cᴏɴᴛʀᴏʟ**\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"📢 **Status:** Affected rarities will **NOT** spawn in any GC.\n"
+        f"✅ = Allowed | ❌ = Locked\n\n"
+        f"**Toggle Rarities:**"
     )
 
     buttons = []
-    # Create buttons in rows of 2
     rarity_keys = list(RARITIES_MAP.keys())
+    # Create buttons in rows of 2
     for i in range(0, len(rarity_keys), 2):
         row = []
         for r_name in rarity_keys[i:i+2]:
@@ -49,22 +57,19 @@ async def rarity_settings_cmd(client, message):
             status = "✅" if r_name in allowed else "❌"
             row.append(InlineKeyboardButton(
                 f"{emoji} {r_name} {status}", 
-                callback_data=f"tr_{r_name}_{message.chat.id}"
+                callback_data=f"global_tr_{r_name}"
             ))
         buttons.append(row)
     
     await message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
-@Client.on_callback_query(filters.regex(r"^tr_"))
-async def toggle_rarity_callback(client, query: CallbackQuery):
+@Client.on_callback_query(filters.regex(r"^global_tr_"))
+async def toggle_global_rarity(client, query: CallbackQuery):
     if query.from_user.id != OWNER_ID:
-        return await query.answer("❌ Owner Only!", show_alert=True)
+        return await query.answer("🛑 Owner Only!", show_alert=True)
 
-    data = query.data.split("_")
-    r_name = data[1]
-    chat_id = int(data[2])
-
-    allowed = await get_allowed_rarities(chat_id)
+    r_name = query.data.split("_")[2]
+    allowed = await get_global_rarities()
     allowed = list(allowed)
 
     if r_name in allowed:
@@ -72,14 +77,13 @@ async def toggle_rarity_callback(client, query: CallbackQuery):
     else:
         allowed.append(r_name)
 
-    # Update Database
-    await groups.update_one(
-        {"_id": chat_id}, 
+    await settings.update_one(
+        {"_id": "global_spawn_settings"}, 
         {"$set": {"rarities": allowed}}, 
         upsert=True
     )
 
-    # Rebuild buttons to show updated status
+    # Rebuild UI
     buttons = []
     rarity_keys = list(RARITIES_MAP.keys())
     for i in range(0, len(rarity_keys), 2):
@@ -89,9 +93,9 @@ async def toggle_rarity_callback(client, query: CallbackQuery):
             status = "✅" if name in allowed else "❌"
             row.append(InlineKeyboardButton(
                 f"{emoji} {name} {status}", 
-                callback_data=f"tr_{name}_{chat_id}"
+                callback_data=f"global_tr_{name}"
             ))
         buttons.append(row)
 
     await query.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(buttons))
-    await query.answer(f"{r_name} toggled!")
+    await query.answer(f"Updated: {r_name}")

@@ -1,3 +1,3 @@
-# This file handles shared memory between spawn and grab
-active_spawns = {}
-message_counts = {}
+# This dictionary will store spawned characters globally
+# Format: {chat_id: character_data_dict}
+spawned_chars = {}

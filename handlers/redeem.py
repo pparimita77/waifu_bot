@@ -11,26 +11,30 @@ async def redeem_code(client, message):
     input_code = message.command[1].upper()
     user_id = message.from_user.id
 
-    # 1. Look for the code in dust_codes
+    # 1. Look for the code
     code_data = await dust_codes.find_one({"code": input_code})
 
     if not code_data:
         return await message.reply_text("❌ Iɴᴠᴀʟɪᴅ ᴏʀ Exᴘɪʀᴇᴅ Cᴏᴅᴇ.")
 
-    # 2. Check if user already redeemed this specific code
-    if user_id in code_data.get("used_by", []):
+    # 2. Check usage list
+    used_by = code_data.get("used_by", [])
+    if user_id in used_by:
         return await message.reply_text("🚫 Yᴏᴜ ʜᴀᴠᴇ ᴀʟʀᴇᴀᴅʏ ʀᴇᴅᴇᴇᴍᴇᴅ ᴛʜɪs ᴄᴏᴅᴇ!")
 
-    # 3. Check if usage limit is reached
-    if len(code_data.get("used_by", [])) >= code_data["limit"]:
-        return await message.reply_text("😔 Sᴏʀʀʏ! Tʜɪs ᴄᴏᴅᴇ ʜᴀs ʀᴇᴀᴄʜᴇᴅ ɪᴛs ᴍᴀxɪᴍᴜᴍ ᴜsᴀɢᴇ ʟɪᴍɪᴛ.")
+    # 3. Check usage limit
+    if len(used_by) >= code_data.get("limit", 0):
+        return await message.reply_text("😔 Sᴏʀʀʏ! Tʜɪs ᴄᴏᴅᴇ ʜᴀs ʀᴇᴀᴄʜᴇᴅ ɪᴛs ʟɪᴍɪᴛ.")
 
     # 4. Successful Redemption
-    amount = code_data["amount"]
+    amount = float(code_data["amount"]) # Ensure it is a float for Stardust
 
-    # Add Stardust to User Profile
+    # FIX: Use the same filter as your /balance command to find the user
+    user_filter = {"$or": [{"user_id": user_id}, {"_id": user_id}]}
+    
+    # Update Stardust balance
     await users.update_one(
-        {"_id": user_id},
+        user_filter,
         {"$inc": {"stardust": amount}},
         upsert=True
     )
@@ -42,7 +46,9 @@ async def redeem_code(client, message):
     )
 
     await message.reply_text(
-        f"🎉 **Rᴇᴅᴇᴇᴍ Sᴜᴄᴄᴇssғᴜʟ!**\n\n"
-        f"🌌 Yᴏᴜ ʀᴇᴄᴇɪᴠᴇᴅ `{amount}` Sᴛᴀʀᴅᴜsᴛ.\n"
-        f"💰 Cʜᴇᴄᴋ ʏᴏᴜʀ ʙᴀʟᴀɴᴄᴇ ᴡɪᴛʜ `/balance`."
+        f"🎉 **Rᴇᴅᴇᴇᴍ Sᴜᴄᴄᴇssғᴜʟ!**\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🌌 **Rᴇᴄᴇɪᴠᴇᴅ:** 🌟 `{amount:,.2f}` Sᴛᴀʀᴅᴜsᴛ\n"
+        f"💰 Cʜᴇᴄᴋ ʏᴏᴜʀ `/balance` ɴᴏᴡ!\n"
+        f"━━━━━━━━━━━━━━━━━━━━"
     )
