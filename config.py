@@ -1,3 +1,4 @@
+import os
 # --- BOT CREDENTIALS ---
 # Get these from https://my.telegram.org
 BOT_TOKEN = os.getenv("BOT_TOKEN")
