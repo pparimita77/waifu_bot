@@ -1,16 +1,14 @@
-# Telegram Bot Frameworks
+# Telegram Bot (Pyrogram)
 pyrogram
 tgcrypto
-python-telegram-bot
 
-# Database (Async MongoDB)
+# Database (MongoDB)
 motor
-pymongo[srv]
+pymongo
+dnspython
 
-# Environment & Utilities
+# Environment
 python-dotenv
-aiohttp
-aiofiles
 
-# Optional: For better performance with JSON
+# Optional (fast JSON)
 ujson
