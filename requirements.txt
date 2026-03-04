@@ -1,0 +1,16 @@
+# Telegram Bot Frameworks
+pyrogram
+tgcrypto
+python-telegram-bot
+
+# Database (Async MongoDB)
+motor
+pymongo[srv]
+
+# Environment & Utilities
+python-dotenv
+aiohttp
+aiofiles
+
+# Optional: For better performance with JSON
+ujson
