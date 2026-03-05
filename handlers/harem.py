@@ -31,28 +31,35 @@ RARITY_SYMBOLS = {
 
 # --- TEXT BUILDER (OBEYS CMODE) ---
 async def build_harem_text(user_id, first_name, last_name, page):
-    # Fetch user preferences for cmode
+    # Fetch user preferences
     user_data = await users.find_one({"$or": [{"user_id": user_id}, {"_id": user_id}]}) or {}
     fav_id = str(user_data.get("favorite", "")) 
     harem_mode = user_data.get("harem_mode", "all")
 
+    # Fetch user claims
     user_claims = await claims.find({"user_id": user_id}).to_list(length=None)
     if not user_claims:
         return "💔 Your collection is empty.", 0, 0, None, False
 
-    char_ids = [c['char_id'] for c in user_claims]
+    # Standardize IDs (Ensures compatibility between String/Int)
+    char_ids = []
+    for c in user_claims:
+        try:
+            char_ids.append(str(c['char_id']))
+        except KeyError:
+            continue
+
+    # Build Character Filter
+    # We use $in with both string and int versions just to be safe
+    char_filter = {"id": {"$in": char_ids + [int(i) for i in char_ids if i.isdigit()]}}
     
-    # Build Character Filter based on cmode
-    char_filter = {"id": {"$in": char_ids}}
     if harem_mode != "all":
         char_filter["rarity"] = {"$regex": f"^{harem_mode}", "$options": "i"}
 
     all_matching_chars = await characters.find(char_filter).to_list(length=None)
     
     if not all_matching_chars:
-        if harem_mode != "all":
-            return f"❌ You don't have any **{harem_mode.capitalize()}** characters yet.", 0, 0, None, False
-        return "💔 Your collection is empty.", 0, 0, None, False
+        return f"❌ No characters found matching mode: **{harem_mode}**.", 0, 0, None, False
 
     total_chars = len(all_matching_chars)
     total_pages = math.ceil(total_chars / ITEMS_PER_PAGE)
@@ -61,28 +68,34 @@ async def build_harem_text(user_id, first_name, last_name, page):
     start = (page - 1) * ITEMS_PER_PAGE
     page_chars = all_matching_chars[start:start + ITEMS_PER_PAGE]
 
+    # Fetch Favorite Character Data (Even if not in current filter)
     fav_image, fav_name, fav_is_video = None, "None Set", False
-    # Check all owned chars for the favorite one
-    for char in all_matching_chars:
-        if str(char['id']) == fav_id:
-            fav_name = html.escape(char.get('name', 'Unknown'))
-            fav_image = char.get('file_id') or char.get('image')
-            fav_is_video = "amv" in char.get('rarity', '').lower()
+    if fav_id:
+        fav_char = await characters.find_one({"id": {"$in": [fav_id, int(fav_id) if fav_id.isdigit() else None]}})
+        if fav_char:
+            fav_name = html.escape(fav_char.get('name', 'Unknown'))
+            fav_image = fav_char.get('file_id') or fav_char.get('image') or fav_char.get('img_url')
+            fav_is_video = "amv" in fav_char.get('rarity', '').lower()
 
     mode_label = f" ({harem_mode.capitalize()})" if harem_mode != "all" else ""
     text = (
-        f"🌸 <b>{first_name}'s Collection{mode_label}</b> 🌸\n"
+        f"🌸 <b>{html.escape(first_name)}'s Collection{mode_label}</b> 🌸\n"
         f"⭐️ <b>Favorite:</b> {fav_name}\n"
         f"✨ <b>Total Waifus:</b> <code>{total_chars}</code>\n\n"
     )
 
     for char in page_chars:
-        raw_rarity = str(char.get('rarity', 'Common')).split()[0].capitalize()
+        rarity_str = str(char.get('rarity', 'Common'))
+        # Get first word of rarity
+        raw_rarity = rarity_str.split()[0].capitalize()
         symbol = RARITY_SYMBOLS.get(raw_rarity, "⚪️")
-        text += f"╭〔 <b>{html.escape(char.get('anime', 'Unknown'))}</b> 〕\n│ ✦ {char.get('id')} | {symbol} | <b>{html.escape(char.get('name', 'Unknown'))}</b>\n╰──────────────\n\n"
+        
+        char_name = html.escape(char.get('name', 'Unknown'))
+        anime_name = html.escape(char.get('anime') or char.get('source') or 'Unknown')
+        
+        text += f"╭〔 <b>{anime_name}</b> 〕\n│ ✦ {char.get('id')} | {symbol} | <b>{char_name}</b>\n╰──────────────\n\n"
 
     return text, total_pages, total_chars, fav_image, fav_is_video
-
 # --- CALLBACK HANDLER ---
 @Client.on_callback_query(filters.regex(r"^hr_(\d+)_(\d+)$"))
 async def harem_callback(client: Client, callback_query: CallbackQuery):
