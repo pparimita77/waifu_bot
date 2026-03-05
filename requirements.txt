@@ -2,6 +2,8 @@
 pyrogram
 tgcrypto
 
+pytz
+
 # Database (MongoDB)
 motor
 pymongo
