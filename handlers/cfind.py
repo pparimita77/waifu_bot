@@ -72,20 +72,33 @@ async def cfind_handler(client: Client, message: Message):
         f"━━━━━━━━━━━━━━━━━━━━"
     )
 
-    file_id = char.get('file_id')
-    # This checks the boolean flag we added during cupload
+file_id = char.get('file_id') or char.get('img_url') or char.get('image')
     is_video = char.get("is_video", False) 
 
     try:
-        if is_video and file_id:
-            # Send as Video for AMVs
-            await message.reply_video(video=file_id, caption=caption, parse_mode=ParseMode.HTML)
-        elif file_id:
-            # Send as Photo for others
-            await message.reply_photo(photo=file_id, caption=caption, parse_mode=ParseMode.HTML)
+        if file_id:
+            if is_video:
+                # Send as Video for AMVs
+                await message.reply_video(
+                    video=file_id, 
+                    caption=caption, 
+                    parse_mode=ParseMode.HTML
+                )
+            else:
+                # Send as Photo for others
+                await message.reply_photo(
+                    photo=file_id, 
+                    caption=caption, 
+                    parse_mode=ParseMode.HTML
+                )
         else:
-            # Fallback for text-only
-            await message.reply_text(caption, parse_mode=ParseMode.HTML)
+            # If no file_id exists, we must use reply_text
+            # reply_text does NOT take a 'caption' argument, it takes 'text'
+            await message.reply_text(
+                text=caption, 
+                parse_mode=ParseMode.HTML
+            )
     except Exception as e:
-        print(f"CFIND Error: {e}")
-        await message.reply_text(caption, parse_mode=ParseMode.HTML)
+        logger.error(f"Media Send Error: {e}")
+        # Final fallback if Telegram rejects the file_id
+        await message.reply_text(text=caption, parse_mode=ParseMode.HTML)
