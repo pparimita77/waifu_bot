@@ -62,56 +62,55 @@ async def marry_waifu(client, message):
                 f"⏳ **Cooldown!**\nRemaining: **{mins} minutes**.\n{warning}"
             )
 
-    # 4. Success Path: Update DB and Pick Bride
+# 4. Success Path: Pick Bride
+    # We update the user's cooldown immediately to prevent "double-marry" exploits
     await users.update_one(
         {"$or": [{"_id": user_id}, {"user_id": user_id}]},
         {"$set": {"last_marry_time": now, "marry_spam_count": 0}},
         upsert=True
     )
 
-    query = {"rarity": {"$regex": f"^({'|'.join(ALLOWED_RARITIES)})", "$options": "i"}}
+    # Clean regex to match start of rarity string
+    rarity_pattern = f"^({'|'.join(ALLOWED_RARITIES)})"
+    query = {"rarity": {"$regex": rarity_pattern, "$options": "i"}}
+    
     pipeline = [{"$match": query}, {"$sample": {"size": 1}}]
     random_chars = await characters.aggregate(pipeline).to_list(1)
     
     if not random_chars:
-        return await message.reply_text("❌ No eligible characters found!")
+        return await message.reply_text("❌ No eligible brides found in the database!")
 
     char = random_chars[0]
-    char_id = char['id']
 
     # 5. Dice Animation
     dice_msg = await client.send_dice(message.chat.id, emoji="🎲")
-    await asyncio.sleep(4) 
+    await asyncio.sleep(4) # Wait for dice to stop rolling
     dice_value = dice_msg.dice.value
 
-    # 6. Success/Failure Result
+    # 6. Result Logic
+    is_video = "amv" in str(char.get('rarity', '')).lower()
+    media_id = char.get("file_id") or char.get("img_url") or char.get("image") or char.get("photo")
+
     if dice_value >= 4:
-        # Save to claims
+        # Success: Add to collection
         await claims.insert_one({
             "user_id": user_id,
             "char_id": char['id'],
             "name": char['name'],
             "rarity": char['rarity'],
-            "anime": char.get('anime') or char.get('animee', 'Unknown'),
+            "anime": char.get('anime') or char.get('source', 'Unknown'),
             "date": now
         })
 
-        # Jackpot Logic
         bonus_text = ""
         if dice_value == 6:
-            bonus_amount = 10
+            bonus_amount = 500 # Adjusted for "Jackpot" feel
             await users.update_one(
                 {"$or": [{"_id": user_id}, {"user_id": user_id}]}, 
-                {"$inc": {"emeralds": bonus_amount}}
+                {"$inc": {"stardust": bonus_amount}} # Using stardust to match your other scripts
             )
-            bonus_text = f"\n\n🎁 **JACKPOT!** Rolled a 6!\nReceived **{bonus_amount:,} Emeralds** 💠"
+            bonus_text = f"\n\n🎁 **JACKPOT!** Rolled a 6!\nReceived **{bonus_amount:,} Stardust** ✨"
 
-        # Update User Harem
-        await users.update_one(
-            {"$or": [{"_id": user_id}, {"user_id": user_id}]}, 
-            {"$push": {"married": char_id}}
-        )
-        
         text = (
             f"🎲 **Dice Rolled: {dice_value}**\n\n"
             "🌸 **Marriage Successful!** 🌸\n"
@@ -126,13 +125,18 @@ async def marry_waifu(client, message):
     else:
         text = (
             f"🎲 **Dice Rolled: {dice_value}**\n\n"
-            f"💔 **{char['name']}** rejected you!\n"
-            "<i>Try again in 30 minutes!</i>"
+            f"💔 **{char['name']}** rejected your proposal!\n"
+            "<i>Don't give up! Try again in 30 minutes.</i>"
         )
 
-    # 7. Final Response
-    img = char.get("file_id") or char.get("image")
+    # 7. Final Response with Video/Photo Support
     try:
-        await message.reply_photo(img, caption=text)
-    except:
+        if not media_id:
+            raise ValueError("No media found")
+            
+        if is_video:
+            await message.reply_video(media_id, caption=text)
+        else:
+            await message.reply_photo(media_id, caption=text)
+    except Exception:
         await message.reply_text(text)
