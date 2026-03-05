@@ -6,9 +6,11 @@ tgcrypto
 motor
 pymongo
 dnspython
+apscheduler
 
 # Environment
 python-dotenv
 
 # Optional (fast JSON)
 ujson
+
