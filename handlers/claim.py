@@ -88,9 +88,15 @@ async def claim_waifu(client, message):
         "date": datetime.datetime.now()
     })
 
-    # 6. UI Display
+# 6. UI Display & Media Handling
     clean_db_rarity = str(char['rarity']).split(" ")[0].strip()
     display_rarity = RARITY_MAP.get(clean_db_rarity, char['rarity'])
+
+    # Determine if it's a video (AMV) or photo
+    is_video = char.get("is_video", False) or "AMV" in str(char['rarity']).upper()
+    
+    # Try multiple keys in case of database inconsistency
+    media_path = char.get("file_id") or char.get("img_url") or char.get("image")
 
     caption = (
         f"🌊 <b>{html.escape(message.from_user.first_name)}</b>, Yᴏᴜ ᴄʟᴀɪᴍᴇᴅ:\n"
@@ -98,14 +104,21 @@ async def claim_waifu(client, message):
         f"🌸 <b>Iᴅ:</b> <code>{char['id']}</code>\n"
         f"💫 <b>Nᴀᴍᴇ:</b> {char['name']}\n"
         f"🌈 <b>Rᴀʀɪᴛʏ:</b> {display_rarity}\n"
-        f"🍜 <b>Aɴɪᴍᴇ:</b> {char.get('anime') or char.get('animee', 'Unknown')}\n"
+        f"🍜 <b>Aɴɪᴍᴇ:</b> {char.get('anime') or char.get('source', 'Unknown')}\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"🎫 <b>Nᴇxᴛ Cʟᴀɪᴍ:</b> ᴛᴏᴍᴏʀʀᴏᴡ"
     )
 
-    file_id = char.get("file_id") or char.get("img_url") or char.get("image")
-    
     try:
-        await message.reply_photo(photo=file_id, caption=caption)
-    except Exception:
+        if not media_path:
+            raise ValueError("No media found in database")
+
+        if is_video:
+            await message.reply_video(video=media_path, caption=caption)
+        else:
+            await message.reply_photo(photo=media_path, caption=caption)
+            
+    except Exception as e:
+        print(f"Claim Media Error: {e}")
+        # Final fallback: Send as text if media fails
         await message.reply_text(caption)
