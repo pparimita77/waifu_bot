@@ -1,7 +1,7 @@
 # Telegram Bot (Pyrogram)
 pyrogram
 tgcrypto
-
+python-telegram-bot==20.7
 pytz
 
 # Database (MongoDB)
