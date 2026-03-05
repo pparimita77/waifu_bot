@@ -1,10 +1,11 @@
 import random
+import datetime
 from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto, InputMediaVideo
 from database import characters, shop_config, users, claims
 
 # 1. OWNER ID
-OWNER_ID = 8325139144 
+OWNER_ID = 7987799736
 
 # Master Rarity List
 RARITY_DATA = [
@@ -21,31 +22,26 @@ async def set_cost(client, message):
     if message.from_user.id != OWNER_ID: return
     
     if len(message.command) < 4:
-        return await message.reply_text("❌ **Usage:** `/setcost <no> <min> <max>`\nExample: `/setcost 1 50 100` (Sets Common to 50-100 Krytos)")
+        return await message.reply_text("❌ **Usage:** `/setcost <no> <min> <max>`\nExample: `/setcost 1 50 100` (Sets Common)")
     
     try:
         idx = int(message.command[1]) - 1
-        r_min = int(message.command[2])
-        r_max = int(message.command[3])
+        r_min, r_max = int(message.command[2]), int(message.command[3])
         
         if not (0 <= idx < len(RARITY_DATA)):
-            return await message.reply_text(f"❌ Invalid Rarity Number! Use 1-{len(RARITY_DATA)}.")
+            return await message.reply_text(f"❌ Invalid Rarity Number!")
             
         name = RARITY_DATA[idx][0]
-        
-        # Save to database under the 'costs' document
         await shop_config.update_one(
             {"id": "costs"}, 
             {"$set": {name: {"min": r_min, "max": r_max}}}, 
             upsert=True
         )
-        
-        await message.reply_text(f"✅ **{name}** Krytos Price Updated: `💎 {r_min:,}` - `💎 {r_max:,}`")
-        
+        await message.reply_text(f"✅ **{name}** Price Updated: `💎 {r_min:,}` - `💎 {r_max:,}`")
     except ValueError:
-        await message.reply_text("❌ Error: Min and Max prices must be numbers!")
+        await message.reply_text("❌ Prices must be numbers!")
 
-# --- 2. THE BUY SYSTEM (Krytos Sync) ---
+# --- 2. THE BUY SYSTEM ---
 
 @Client.on_callback_query(filters.regex(r"^buy_"))
 async def buy_handler(client, query):
@@ -53,34 +49,39 @@ async def buy_handler(client, query):
     char_id, cost = data[1], int(data[2])
     user_id = query.from_user.id
 
-    # Fetch user from your main database
-    user = await users.find_one({"user_id": user_id})
-    
-    # Check Krytos Balance
-    user_krytos = user.get("krytos", 0) if user else 0
+    user = await users.find_one({"user_id": user_id}) or {}
+    if user.get("krytos", 0) < cost:
+        return await query.answer(f"❌ Not enough Krytos!", show_alert=True)
 
-    if user_krytos < cost:
-        return await query.answer(f"❌ Not enough Krytos! You need {cost - user_krytos} ₭ more.", show_alert=True)
-
-    # Check if user already owns character
-    check = await claims.find_one({"user_id": user_id, "char_id": char_id})
-    if check:
+    # Check ownership
+    if await claims.find_one({"user_id": user_id, "char_id": char_id}):
         return await query.answer("⚠️ You already own this character!", show_alert=True)
 
-    # Deduct Krytos and Add to Collection
+    # Fetch character data to save full info for /harem
+    char = await characters.find_one({"id": char_id})
+    if not char:
+        return await query.answer("❌ Character no longer exists!", show_alert=True)
+
+    # Deduct & Add
     await users.update_one({"user_id": user_id}, {"$inc": {"krytos": -cost}})
-    await claims.insert_one({"user_id": user_id, "char_id": char_id})
+    await claims.insert_one({
+        "user_id": user_id,
+        "char_id": char['id'],
+        "name": char['name'],
+        "rarity": char['rarity'],
+        "anime": char.get('anime') or "Unknown",
+        "date": datetime.datetime.now()
+    })
     
     await query.message.edit_caption(
-        caption=f"🎉 **Purchase Successful!**\n\nCharacter `{char_id}` has been added to your collection.\n💎 **Spent:** `{cost:,}` Krytos.",
+        caption=f"🎉 **Purchase Successful!**\n\nCharacter: **{char['name']}**\n💎 **Spent:** `{cost:,}` Krytos.",
         reply_markup=None
     )
     await query.answer("Successfully added to collection!")
 
-# --- 3. THE USER SHOP DISPLAY ---
+# --- 3. THE DISPLAY LOGIC ---
 
 async def show_item(event, rarity_name, is_cb=False):
-    # Fetch random character matching rarity
     char_list = await characters.aggregate([
         {"$match": {"rarity": {"$regex": f"^{rarity_name}", "$options": "i"}}},
         {"$sample": {"size": 1}}
@@ -92,9 +93,12 @@ async def show_item(event, rarity_name, is_cb=False):
 
     char = char_list[0]
     
-    # Get costs set by /setcost
+    # Correct Media Handling
+    media_id = char.get('file_id') or char.get('img_url') or char.get('image')
+    is_video = "amv" in str(char.get('rarity', '')).lower() or char.get("is_video", False)
+
     costs_doc = await shop_config.find_one({"id": "costs"}) or {}
-    r_range = costs_doc.get(rarity_name, {"min": 100, "max": 200}) # Default if not set
+    r_range = costs_doc.get(rarity_name, {"min": 100, "max": 200})
     price = random.randint(r_range['min'], r_range['max'])
     
     emoji = next((e for n, e in RARITY_DATA if n == rarity_name), "💎")
@@ -109,23 +113,41 @@ async def show_item(event, rarity_name, is_cb=False):
         f"🆔 ID: `{char['id']}`"
     )
 
-    # Navigation logic
+    # Navigation Logic (Fallback to RARITY_DATA if visibility doc missing)
     vis = await shop_config.find_one({"id": "visibility"})
-    active = vis.get("active_buttons", [rarity_name])
-    idx = active.index(rarity_name) if rarity_name in active else 0
+    active = vis.get("active_buttons", [r[0] for r in RARITY_DATA]) if vis else [r[0] for r in RARITY_DATA]
     
+    idx = active.index(rarity_name) if rarity_name in active else 0
     prev_r = active[idx - 1] if idx > 0 else active[-1]
     next_r = active[idx + 1] if idx < len(active) - 1 else active[0]
 
-    buttons = [
+    buttons = InlineKeyboardMarkup([
         [InlineKeyboardButton(f"🛒 Buy for {price:,} ₭", callback_data=f"buy_{char['id']}_{price}")],
         [
-            InlineKeyboardButton("⬅️ Previous", callback_data=f"sh_nav_{prev_r}"),
+            InlineKeyboardButton("⬅️ Prev", callback_data=f"sh_nav_{prev_r}"),
             InlineKeyboardButton("Next ➡️", callback_data=f"sh_nav_{next_r}")
         ]
-    ]
+    ])
 
-    if is_cb:
-        await event.message.edit_media(InputMediaPhoto(char['file_id'], caption=caption), reply_markup=InlineKeyboardMarkup(buttons))
-    else:
-        await event.reply_photo(photo=char['file_id'], caption=caption, reply_markup=InlineKeyboardMarkup(buttons))
+    try:
+        if is_cb:
+            media = InputMediaVideo(media_id, caption=caption) if is_video else InputMediaPhoto(media_id, caption=caption)
+            await event.message.edit_media(media, reply_markup=buttons)
+        else:
+            if is_video:
+                await event.reply_video(video=media_id, caption=caption, reply_markup=buttons)
+            else:
+                await event.reply_photo(photo=media_id, caption=caption, reply_markup=buttons)
+    except Exception:
+        await event.reply_text(caption, reply_markup=buttons)
+
+# --- 4. LISTENERS ---
+
+@Client.on_message(filters.command("shop"))
+async def shop_cmd(client, message):
+    await show_item(message, "Common", is_cb=False)
+
+@Client.on_callback_query(filters.regex(r"^sh_nav_"))
+async def shop_nav(client, query):
+    rarity = query.data.split("_")[2]
+    await show_item(query, rarity, is_cb=True)
