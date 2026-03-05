@@ -1,210 +1,249 @@
-from telegram import Update
-from telegram.ext import CommandHandler, ContextTypes
-from database import users, characters, config  # Use 'characters' instead of 'waifus'
+from pyrogram import Client, filters
+from pyrogram.types import Message
+
+from database import users, characters, config
 from utils import is_sudo, is_dev, is_owner, RARITY_DICT
+
 
 # ------------------ UPLOADER ------------------
 
-async def upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    # AWAIT the async permission check
+@Client.on_message(filters.command("upload"))
+async def upload(client: Client, message: Message):
+    user_id = message.from_user.id
+
     if not await is_dev(user_id):
-        await update.message.reply_text("❌ You are not authorized to upload characters.")
+        await message.reply_text("❌ You are not authorized to upload characters.")
         return
 
-    if len(context.args) < 3:
-        await update.message.reply_text("Usage: /upload <NAME> <ANIME> <RARITY_ID>")
+    args = message.text.split()[1:]
+
+    if len(args) < 3:
+        await message.reply_text("Usage: /upload <NAME> <ANIME> <RARITY_ID>")
         return
 
-    name = context.args[0]
-    anime = context.args[1]
+    name = args[0]
+    anime = args[1]
+    rarity_id = args[2]
+
+    rarity_name = RARITY_DICT.get(rarity_id, "Unknown")
+
     try:
-        rarity_id = context.args[2]
-        rarity_name = RARITY_DICT.get(rarity_id, "Unknown")
-        
-        # AWAIT the database insertion
         result = await characters.insert_one({
-            "name": name, 
-            "source": anime, 
+            "name": name,
+            "source": anime,
             "rarity": rarity_name
         })
-        
-        await update.message.reply_text(f"✅ Uploaded {name} ({rarity_name}) with ID: {result.inserted_id}")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error: {e}"
+
+        await message.reply_text(
+            f"✅ Uploaded {name} ({rarity_name}) with ID: {result.inserted_id}"
         )
 
-async def delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if not is_dev(user_id):
-        await update.message.reply_text("❌ You are not authorized to delete waifus.")
+    except Exception as e:
+        await message.reply_text(f"❌ Error: {e}")
+
+
+# ------------------ DELETE ------------------
+
+@Client.on_message(filters.command("delete"))
+async def delete_character(client: Client, message: Message):
+    user_id = message.from_user.id
+
+    if not await is_dev(user_id):
+        await message.reply_text("❌ You are not authorized to delete characters.")
         return
 
-    if len(context.args) < 1:
-        await update.message.reply_text("Usage: /delete <CHARACTER-ID>")
+    args = message.text.split()[1:]
+
+    if len(args) < 1:
+        await message.reply_text("Usage: /delete <CHARACTER_ID>")
         return
 
-    char_id = int(context.args[0])
-    waifus.delete_one({"_id": char_id})
-    await update.message.reply_text(f"🗑️ Deleted character with ID {char_id}")
+    char_id = args[0]
 
-delete_handler = CommandHandler("delete", delete)
+    await characters.delete_one({"_id": char_id})
+
+    await message.reply_text(f"🗑️ Deleted character with ID {char_id}")
 
 
 # ------------------ SUDO ------------------
 
-async def gen_gems(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await is_sudo(update.effective_user.id):
-        await update.message.reply_text("❌ Not authorized!")
-        return
-    if len(context.args) < 2:
-        await update.message.reply_text("Usage: /gen_gems <amount> <user_id>")
-        return
-    
-    amount = int(context.args[0])
-    target_id = int(context.args[1])
-    
-    # Example logic: incrementing gems in database
-    await users.update_one({"user_id": target_id}, {"$inc": {"gems": amount}}, upsert=True)
-    await update.message.reply_text(f"✅ Generated {amount} Gems for {target_id}")
+@Client.on_message(filters.command("gen_gems"))
+async def gen_gems(client: Client, message: Message):
 
-# ... (Apply similar await fixes to delete, add_sudo, add_dev, etc.)
-
-#STATS
-
-async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await is_dev(update.effective_user.id):
-        await update.message.reply_text("❌ Only dev can see stats.")
+    if not await is_sudo(message.from_user.id):
+        await message.reply_text("❌ Not authorized!")
         return
-        
-    # Database counts must be awaited
+
+    args = message.text.split()[1:]
+
+    if len(args) < 2:
+        await message.reply_text("Usage: /gen_gems <amount> <user_id>")
+        return
+
+    amount = int(args[0])
+    target_id = int(args[1])
+
+    await users.update_one(
+        {"user_id": target_id},
+        {"$inc": {"gems": amount}},
+        upsert=True
+    )
+
+    await message.reply_text(f"✅ Generated {amount} Gems for {target_id}")
+
+
+# ------------------ STATS ------------------
+
+@Client.on_message(filters.command("stats"))
+async def stats(client: Client, message: Message):
+
+    if not await is_dev(message.from_user.id):
+        await message.reply_text("❌ Only dev can see stats.")
+        return
+
     total_users = await users.count_documents({})
     total_chars = await characters.count_documents({})
-    
-    await update.message.reply_text(f"📊 Total Users: {total_users}\n📊 Total Characters: {total_chars}")
+
+    await message.reply_text(
+        f"📊 Total Users: {total_users}\n📊 Total Characters: {total_chars}"
+    )
+
 
 # ------------------ DEV ------------------
 
-async def add_sudo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+@Client.on_message(filters.command("add_sudo"))
+async def add_sudo(client: Client, message: Message):
+
+    user_id = message.from_user.id
+
     if not is_owner(user_id):
-        await update.message.reply_text("❌ Only owner can add sudo.")
+        await message.reply_text("❌ Only owner can add sudo.")
         return
-    if len(context.args) < 1:
-        await update.message.reply_text("Usage: /add_sudo <USER-ID>")
+
+    args = message.text.split()[1:]
+
+    if len(args) < 1:
+        await message.reply_text("Usage: /add_sudo <USER_ID>")
         return
-    sudo_id = int(context.args[0])
-    users.update_one({"user_id": sudo_id}, {"$set": {"sudo": True}}, upsert=True)
-    await update.message.reply_text(f"✅ Added sudo for user {sudo_id}")
 
-add_sudo_handler = CommandHandler("add_sudo", add_sudo)
+    sudo_id = int(args[0])
 
-async def rm_sudo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if not is_owner(user_id):
-        await update.message.reply_text("❌ Only owner can remove sudo.")
+    await users.update_one(
+        {"user_id": sudo_id},
+        {"$set": {"sudo": True}},
+        upsert=True
+    )
+
+    await message.reply_text(f"✅ Added sudo for user {sudo_id}")
+
+
+@Client.on_message(filters.command("rm_sudo"))
+async def rm_sudo(client: Client, message: Message):
+
+    if not is_owner(message.from_user.id):
+        await message.reply_text("❌ Only owner can remove sudo.")
         return
-    if len(context.args) < 1:
-        await update.message.reply_text("Usage: /rm_sudo <USER-ID>")
+
+    args = message.text.split()[1:]
+
+    if len(args) < 1:
+        await message.reply_text("Usage: /rm_sudo <USER_ID>")
         return
-    sudo_id = int(context.args[0])
-    users.update_one({"user_id": sudo_id}, {"$unset": {"sudo": ""}})
-    await update.message.reply_text(f"✅ Removed sudo for user {sudo_id}")
 
-rm_sudo_handler = CommandHandler("rm_sudo", rm_sudo)
+    sudo_id = int(args[0])
 
-async def add_uploader(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if not is_owner(user_id):
-        await update.message.reply_text("❌ Only owner can add uploader.")
+    await users.update_one(
+        {"user_id": sudo_id},
+        {"$unset": {"sudo": ""}}
+    )
+
+    await message.reply_text(f"✅ Removed sudo for user {sudo_id}")
+
+
+@Client.on_message(filters.command("add_dev"))
+async def add_dev(client: Client, message: Message):
+
+    if not is_owner(message.from_user.id):
+        await message.reply_text("❌ Only owner can add devs.")
         return
-    if len(context.args) < 1:
-        await update.message.reply_text("Usage: /add_uploader <USER-ID>")
+
+    args = message.text.split()[1:]
+
+    if len(args) < 1:
+        await message.reply_text("Usage: /add_dev <USER_ID>")
         return
-    uploader_id = int(context.args[0])
-    users.update_one({"user_id": uploader_id}, {"$set": {"uploader": True}}, upsert=True)
-    await update.message.reply_text(f"✅ Added uploader {uploader_id}")
 
-add_uploader_handler = CommandHandler("add_uploader", add_uploader)
+    dev_id = int(args[0])
 
-async def rm_uploader(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if not is_owner(user_id):
-        await update.message.reply_text("❌ Only owner can remove uploader.")
+    await users.update_one(
+        {"user_id": dev_id},
+        {"$set": {"dev": True}},
+        upsert=True
+    )
+
+    await message.reply_text(f"✅ Added dev {dev_id}")
+
+
+@Client.on_message(filters.command("rm_dev"))
+async def rm_dev(client: Client, message: Message):
+
+    if not is_owner(message.from_user.id):
+        await message.reply_text("❌ Only owner can remove devs.")
         return
-    if len(context.args) < 1:
-        await update.message.reply_text("Usage: /rm_uploader <USER-ID>")
+
+    args = message.text.split()[1:]
+
+    if len(args) < 1:
+        await message.reply_text("Usage: /rm_dev <USER_ID>")
         return
-    uploader_id = int(context.args[0])
-    users.update_one({"user_id": uploader_id}, {"$unset": {"uploader": ""}})
-    await update.message.reply_text(f"✅ Removed uploader {uploader_id}")
 
-rm_uploader_handler = CommandHandler("rm_uploader", rm_uploader)
+    dev_id = int(args[0])
 
-# ------------------ OWNER ------------------
+    await users.update_one(
+        {"user_id": dev_id},
+        {"$unset": {"dev": ""}}
+    )
 
-async def add_dev(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_owner(update.effective_user.id):
-        await update.message.reply_text("❌ Only owner can add devs.")
-        return
-    dev_id = int(context.args[0])
-    users.update_one({"user_id": dev_id}, {"$set": {"dev": True}}, upsert=True)
-    await update.message.reply_text(f"✅ Added dev {dev_id}")
+    await message.reply_text(f"✅ Removed dev {dev_id}")
 
-add_dev_handler = CommandHandler("add_dev", add_dev)
-
-async def rm_dev(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_owner(update.effective_user.id):
-        await update.message.reply_text("❌ Only owner can remove devs.")
-        return
-    dev_id = int(context.args[0])
-    users.update_one({"user_id": dev_id}, {"$unset": {"dev": ""}})
-    await update.message.reply_text(f"✅ Removed dev {dev_id}")
-
-rm_dev_handler = CommandHandler("rm_dev", rm_dev)
 
 # ------------------ CONFIG ------------------
 
-async def setstart(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_dev(update.effective_user.id):
-        await update.message.reply_text("❌ Only dev can set start message.")
+@Client.on_message(filters.command("setstart"))
+async def setstart(client: Client, message: Message):
+
+    if not await is_dev(message.from_user.id):
+        await message.reply_text("❌ Only dev can set start message.")
         return
-    # Logic for setting bot start message
-    await update.message.reply_text("✅ Start message updated!")
 
-setstart_handler = CommandHandler("setstart", setstart)
+    await message.reply_text("✅ Start message updated!")
 
-async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_dev(update.effective_user.id):
-        await update.message.reply_text("❌ Only dev can see stats.")
+
+@Client.on_message(filters.command("setcost"))
+async def setcost(client: Client, message: Message):
+
+    if not await is_dev(message.from_user.id):
+        await message.reply_text("❌ Only dev can set cost.")
         return
-    total_users = users.count_documents({})
-    total_chars = waifus.count_documents({})
-    await update.message.reply_text(f"📊 Total Users: {total_users}\n📊 Total Characters: {total_chars}")
 
-stats_handler = CommandHandler("stats", stats)
+    await message.reply_text("✅ Cost updated!")
 
-async def setcost(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_dev(update.effective_user.id):
-        await update.message.reply_text("❌ Only dev can set cost.")
+
+@Client.on_message(filters.command("setbidcost"))
+async def setbidcost(client: Client, message: Message):
+
+    if not await is_dev(message.from_user.id):
+        await message.reply_text("❌ Only dev can set bid cost.")
         return
-    await update.message.reply_text("✅ Cost updated!")
 
-setcost_handler = CommandHandler("setcost", setcost)
+    await message.reply_text("✅ Bid cost updated!")
 
-async def setbidcost(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_dev(update.effective_user.id):
-        await update.message.reply_text("❌ Only dev can set bid cost.")
+
+@Client.on_message(filters.command("rset"))
+async def rset(client: Client, message: Message):
+
+    if not await is_dev(message.from_user.id):
+        await message.reply_text("❌ Only dev can reset rarity spawn.")
         return
-    await update.message.reply_text("✅ Bid cost updated!")
 
-setbidcost_handler = CommandHandler("setbidcost", setbidcost)
-
-async def rset(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_dev(update.effective_user.id):
-        await update.message.reply_text("❌ Only dev can reset rarity spawn.")
-        return
-    # Show buttons to select rarity for all groups
-    await update.message.reply_text("✅ Rarity reset for all groups!")
-
-rset_handler = CommandHandler("rset", rset)
+    await message.reply_text("✅ Rarity reset for all groups!")
