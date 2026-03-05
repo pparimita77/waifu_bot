@@ -103,7 +103,7 @@ async def show_item(event, rarity_name, is_cb=False):
     
     emoji = next((e for n, e in RARITY_DATA if n == rarity_name), "💎")
     caption = (
-        f"🛍️ **Pɪʀᴀᴛᴇ Sʜᴏᴘ**\n"
+        f"🛍️ **Tomioka Sʜᴏᴘ**\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"🔹 **Name:** {char['name']}\n"
         f"🔺 **Anime:** {char['anime']}\n"
