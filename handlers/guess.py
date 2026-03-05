@@ -33,13 +33,24 @@ async def spawn_guess_character(client, chat_id):
         return False
 
     char = results[0]
+    
+    # IMPROVED: Check all possible image keys
+    media_id = char.get('file_id') or char.get('img_url') or char.get('image') or char.get('photo')
+    
+    if not media_id:
+        print(f"⚠️ Character {char['name']} has no media ID!")
+        return False
+
+    # Initialize or update round data
+    current_round = active_guesses.get(chat_id, {}).get("loop_count", 0) + 1
+    
     active_guesses[chat_id] = {
         "name": char['name'].lower().strip(),
         "display_name": char['name'],
-        "file_id": char.get('file_id') or char.get('image'),
-        "is_video": char.get("is_video", False),
+        "file_id": media_id,
+        "is_video": char.get("is_video", False) or "AMV" in str(char.get('rarity', '')).upper(),
         "active": True,
-        "loop_count": active_guesses.get(chat_id, {}).get("loop_count", 0) + 1
+        "loop_count": current_round
     }
 
     caption = (
@@ -47,19 +58,20 @@ async def spawn_guess_character(client, chat_id):
         "<b>Can you guess her name correctly?</b> 💕\n\n"
         "<b>Type fast, guess smart~</b> 💭💫\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        f"🔥 <b>Round:</b> {active_guesses[chat_id]['loop_count']}\n"
+        f"🔥 <b>Round:</b> {current_round}\n"
     )
 
     try:
         if active_guesses[chat_id]["is_video"]:
-            await client.send_video(chat_id, active_guesses[chat_id]["file_id"], caption=caption)
+            await client.send_video(chat_id, video=media_id, caption=caption)
         else:
-            await client.send_photo(chat_id, active_guesses[chat_id]["file_id"], caption=caption)
+            await client.send_photo(chat_id, photo=media_id, caption=caption)
         
         # Start the 20s countdown
-        await start_timeout_timer(client, chat_id, active_guesses[chat_id]['loop_count'])
+        asyncio.create_task(start_timeout_timer(client, chat_id, current_round))
         return True
-    except Exception:
+    except Exception as e:
+        print(f"❌ Guess Spawn Error: {e}")
         active_guesses.pop(chat_id, None)
         return False
 
